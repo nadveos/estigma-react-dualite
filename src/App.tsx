@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import PocketBaseStatus from './components/PocketBaseStatus';
 import Home from './pages/Home';
 import Articles from './pages/Articles';
 import Testimonials from './pages/Testimonials';
@@ -23,6 +24,7 @@ function App() {
         </main>
         <Footer />
         <Chatbot />
+        <PocketBaseStatus />
       </div>
     </Router>
   );

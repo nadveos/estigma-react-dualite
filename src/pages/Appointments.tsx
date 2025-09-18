@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Clock, User, Phone, Mail, MapPin, CheckCircle } from 'lucide-react';
+import { Calendar, Clock, User, Phone, Mail, MapPin, CheckCircle, AlertCircle } from 'lucide-react';
 import { useForm } from 'react-hook-form';
+import { appointmentService } from '../services/appointmentService';
+import { Appointment } from '../types/database';
 
 interface AppointmentForm {
   firstName: string;
@@ -18,7 +20,32 @@ interface AppointmentForm {
 
 const Appointments: React.FC = () => {
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<AppointmentForm>();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+
+  const { register, handleSubmit, formState: { errors }, reset, watch } = useForm<AppointmentForm>();
+
+  const watchedDate = watch('preferredDate');
+
+  // Load available time slots when date changes
+  useEffect(() => {
+    if (watchedDate) {
+      loadAvailableTimeSlots(watchedDate);
+      setSelectedDate(watchedDate);
+    }
+  }, [watchedDate]);
+
+  const loadAvailableTimeSlots = async (date: string) => {
+    try {
+      const slots = await appointmentService.getAvailableTimeSlots(date);
+      setAvailableTimeSlots(slots);
+    } catch (error) {
+      console.error('Error loading time slots:', error);
+      setAvailableTimeSlots([]);
+    }
+  };
 
   const urgencyLevels = [
     { value: 'low', label: 'Baja - Consulta de rutina', color: 'bg-green-100 text-green-800' },
@@ -37,21 +64,38 @@ const Appointments: React.FC = () => {
     'Otra'
   ];
 
-  const timeSlots = [
-    '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
-    '11:00', '11:30', '14:00', '14:30', '15:00', '15:30',
-    '16:00', '16:30', '17:00', '17:30'
-  ];
+  const onSubmit = async (data: AppointmentForm) => {
+    setIsLoading(true);
+    setError(null);
 
-  const onSubmit = (data: AppointmentForm) => {
-    console.log('Appointment data:', data);
-    setIsSubmitted(true);
-    reset();
-    
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitted(false);
-    }, 5000);
+    try {
+      const appointmentData: Omit<Appointment, 'id' | 'status' | 'created' | 'updated'> = {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        age: Number(data.age),
+        condition: data.condition,
+        urgency: data.urgency as 'low' | 'medium' | 'high',
+        preferredDate: data.preferredDate,
+        preferredTime: data.preferredTime,
+        notes: data.notes || ''
+      };
+
+      await appointmentService.createAppointment(appointmentData);
+      setIsSubmitted(true);
+      reset();
+      
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => {
+        setIsSubmitted(false);
+      }, 5000);
+
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Ocurrió un error inesperado');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isSubmitted) {
@@ -66,16 +110,23 @@ const Appointments: React.FC = () => {
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            ¡Solicitud Enviada!
+            ¡Solicitud Enviada Exitosamente!
           </h2>
           <p className="text-gray-600 mb-6">
             Hemos recibido tu solicitud de turno. Nos pondremos en contacto contigo 
             dentro de las próximas 24 horas para confirmar la cita.
           </p>
-          <div className="space-y-2 text-sm text-gray-500">
+          <div className="space-y-2 text-sm text-gray-500 mb-6">
             <p>📧 Revisá tu email para más detalles</p>
             <p>📱 Te llamaremos al número proporcionado</p>
+            <p>⏰ Tu turno será confirmado pronto</p>
           </div>
+          <button
+            onClick={() => setIsSubmitted(false)}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Solicitar Otro Turno
+          </button>
         </motion.div>
       </div>
     );
@@ -103,6 +154,20 @@ const Appointments: React.FC = () => {
           </motion.p>
         </div>
 
+        {/* Error Alert */}
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6"
+          >
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-5 h-5 text-red-600" />
+              <p className="text-red-700">{error}</p>
+            </div>
+          </motion.div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Form */}
           <div className="lg:col-span-2">
@@ -127,6 +192,7 @@ const Appointments: React.FC = () => {
                         {...register('firstName', { required: 'El nombre es requerido' })}
                         type="text"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       />
                       {errors.firstName && (
                         <p className="text-red-500 text-sm mt-1">{errors.firstName.message}</p>
@@ -140,6 +206,7 @@ const Appointments: React.FC = () => {
                         {...register('lastName', { required: 'El apellido es requerido' })}
                         type="text"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       />
                       {errors.lastName && (
                         <p className="text-red-500 text-sm mt-1">{errors.lastName.message}</p>
@@ -159,6 +226,7 @@ const Appointments: React.FC = () => {
                         })}
                         type="email"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       />
                       {errors.email && (
                         <p className="text-red-500 text-sm mt-1">{errors.email.message}</p>
@@ -172,6 +240,7 @@ const Appointments: React.FC = () => {
                         {...register('phone', { required: 'El teléfono es requerido' })}
                         type="tel"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       />
                       {errors.phone && (
                         <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>
@@ -189,6 +258,7 @@ const Appointments: React.FC = () => {
                         })}
                         type="number"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       />
                       {errors.age && (
                         <p className="text-red-500 text-sm mt-1">{errors.age.message}</p>
@@ -210,6 +280,7 @@ const Appointments: React.FC = () => {
                       <select
                         {...register('condition', { required: 'Selecciona el tipo de consulta' })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       >
                         <option value="">Seleccionar...</option>
                         {conditions.map(condition => (
@@ -235,6 +306,7 @@ const Appointments: React.FC = () => {
                               type="radio"
                               value={level.value}
                               className="text-blue-600 focus:ring-blue-500"
+                              disabled={isLoading}
                             />
                             <span className={`ml-3 px-3 py-1 rounded-full text-sm ${level.color}`}>
                               {level.label}
@@ -265,6 +337,7 @@ const Appointments: React.FC = () => {
                         type="date"
                         min={new Date().toISOString().split('T')[0]}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading}
                       />
                       {errors.preferredDate && (
                         <p className="text-red-500 text-sm mt-1">{errors.preferredDate.message}</p>
@@ -277,14 +350,22 @@ const Appointments: React.FC = () => {
                       <select
                         {...register('preferredTime', { required: 'Selecciona un horario' })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoading || !selectedDate}
                       >
-                        <option value="">Seleccionar...</option>
-                        {timeSlots.map(time => (
+                        <option value="">
+                          {!selectedDate ? 'Primero selecciona una fecha' : 'Seleccionar horario...'}
+                        </option>
+                        {availableTimeSlots.map(time => (
                           <option key={time} value={time}>
                             {time}
                           </option>
                         ))}
                       </select>
+                      {selectedDate && availableTimeSlots.length === 0 && (
+                        <p className="text-yellow-600 text-sm mt-1">
+                          No hay horarios disponibles para esta fecha. Intenta con otra fecha.
+                        </p>
+                      )}
                       {errors.preferredTime && (
                         <p className="text-red-500 text-sm mt-1">{errors.preferredTime.message}</p>
                       )}
@@ -302,16 +383,27 @@ const Appointments: React.FC = () => {
                     rows={4}
                     placeholder="Describí brevemente tu situación o cualquier información adicional que consideres importante..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={isLoading}
                   />
                 </div>
 
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 text-white py-3 px-4 rounded-md font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2"
+                  disabled={isLoading}
+                  className="w-full bg-blue-600 text-white py-3 px-4 rounded-md font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Calendar className="w-5 h-5" />
-                  <span>Solicitar Turno</span>
+                  {isLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Enviando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Calendar className="w-5 h-5" />
+                      <span>Solicitar Turno</span>
+                    </>
+                  )}
                 </button>
               </form>
             </motion.div>
